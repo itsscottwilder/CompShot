@@ -1,0 +1,141 @@
+import CoreImage
+import Metal
+import QuartzCore
+
+enum ViewMode: Int { case original, matte, key }
+enum Backdrop: Int { case blue, checker, custom }
+
+/// Where the keyed person sits in the frame (like a 1Shot graphic's size and nudge).
+/// x and y are fractions of the frame width and height; y grows downward, as on screen.
+struct Placement: Equatable {
+    var scale: Float = 1, x: Float = 0, y: Float = 0
+    var isIdentity: Bool { abs(scale - 1) < 0.0005 && abs(x) < 0.0005 && abs(y) < 0.0005 }
+    /// Scales about the frame's centre, then moves.
+    func transform(for e: CGRect) -> CGAffineTransform {
+        let c = CGPoint(x: e.midX, y: e.midY), s = CGFloat(scale)
+        return CGAffineTransform(translationX: -c.x, y: -c.y)
+            .concatenating(CGAffineTransform(scaleX: s, y: s))
+            .concatenating(CGAffineTransform(translationX: c.x + CGFloat(x) * e.width, y: c.y - CGFloat(y) * e.height))
+    }
+}
+
+final class Renderer {
+    let device: MTLDevice
+    let queue: MTLCommandQueue
+    let context: CIContext
+    let keyer: GreenKeyer
+    let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
+    let linear = CGColorSpace(name: CGColorSpace.linearSRGB)!
+
+    init() throws {
+        guard let d = MTLCreateSystemDefaultDevice(), let q = d.makeCommandQueue() else {
+            throw NSError(domain: "KeyShot", code: 1, userInfo: [NSLocalizedDescriptionKey: "Metal is unavailable"])
+        }
+        device = d; queue = q
+        context = CIContext(mtlCommandQueue: q, options: [.cacheIntermediates: false])
+        keyer = try GreenKeyer(device: d)
+    }
+
+    func backdrop(_ b: Backdrop, extent: CGRect) -> CIImage {
+        let image: CIImage
+        switch b {
+        case .blue, .custom:
+            image = CIImage(color: CIColor(red: 0.16, green: 0.2, blue: 0.42, alpha: 1, colorSpace: sRGB)!)
+        case .checker:
+            let f = CIFilter(name: "CICheckerboardGenerator")!
+            f.setValue(CIVector(x: 0, y: 0), forKey: "inputCenter")
+            f.setValue(CIColor(red: 0.32, green: 0.32, blue: 0.32), forKey: "inputColor0")
+            f.setValue(CIColor(red: 0.14, green: 0.14, blue: 0.14), forKey: "inputColor1")
+            f.setValue(max(extent.width, extent.height) / 48, forKey: "inputWidth")
+            f.setValue(1, forKey: "inputSharpness")
+            image = f.outputImage!
+        }
+        return image.cropped(to: extent)
+    }
+
+    /// Scales a background to cover the frame (like "fill"), centred, with optional blur in pixels at 1080p.
+    func fill(_ bg: CIImage, extent: CGRect, blur: Float) -> CIImage {
+        let b = bg.extent, k = max(extent.width / b.width, extent.height / b.height)
+        var im = bg.transformed(by: CGAffineTransform(translationX: -b.minX, y: -b.minY))
+            .transformed(by: CGAffineTransform(scaleX: k, y: k))
+        im = im.transformed(by: CGAffineTransform(translationX: extent.minX + (extent.width - b.width * k) / 2,
+                                                  y: extent.minY + (extent.height - b.height * k) / 2))
+        if blur > 0 { im = im.clampedToExtent().applyingGaussianBlur(sigma: Double(blur) * Double(extent.height) / 1080) }
+        return im.cropped(to: extent)
+    }
+
+    /// The keyed person moved and resized; the frame stays the same size.
+    func place(_ fg: CIImage, _ p: Placement) -> CIImage {
+        let e = fg.extent
+        return p.isIdentity ? fg : fg.transformed(by: p.transform(for: e)).cropped(to: e)
+    }
+
+    func compose(_ image: CIImage, settings: KeySettings, mode: ViewMode, backdrop b: Backdrop,
+                 custom: CIImage? = nil, blur: Float = 0, placement: Placement = Placement()) -> CIImage {
+        switch mode {
+        case .original: return image
+        case .matte:
+            // Outside the moved matte is black (removed), like the rest of the background.
+            return place(keyer.apply(to: image, settings: settings, output: .matte), placement)
+                .composited(over: CIImage(color: .black).cropped(to: image.extent))
+        case .key:
+            let bg = b == .custom && custom != nil ? fill(custom!, extent: image.extent, blur: blur)
+                                                   : backdrop(b == .custom ? .blue : b, extent: image.extent)
+            return place(keyer.apply(to: image, settings: settings), placement).composited(over: bg).cropped(to: image.extent)
+        }
+    }
+
+    /// Average linear color of part of an image.
+    func average(_ image: CIImage, rect: CGRect) -> SIMD3<Float>? {
+        let r = rect.intersection(image.extent)
+        guard !r.isNull, !r.isEmpty, let f = CIFilter(name: "CIAreaAverage") else { return nil }
+        f.setValue(image, forKey: kCIInputImageKey)
+        f.setValue(CIVector(cgRect: r), forKey: kCIInputExtentKey)
+        guard let out = f.outputImage else { return nil }
+        var px = [Float](repeating: 0, count: 4)
+        context.render(out, toBitmap: &px, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                       format: .RGBAf, colorSpace: linear)
+        return SIMD3(px[0], px[1], px[2])
+    }
+
+    /// Finds the screen color by averaging the clearly green or clearly blue pixels of a small copy
+    /// of the frame, whichever there are more of.
+    func detectScreen(_ image: CIImage) -> SIMD3<Float>? {
+        let w = 160, h = max(1, Int(160 * image.extent.height / image.extent.width))
+        let small = image.transformed(by: CGAffineTransform(scaleX: CGFloat(w) / image.extent.width,
+                                                            y: CGFloat(h) / image.extent.height))
+        var px = [Float](repeating: 0, count: w * h * 4)
+        context.render(small, toBitmap: &px, rowBytes: w * 16,
+                       bounds: CGRect(x: 0, y: 0, width: w, height: h), format: .RGBAf, colorSpace: linear)
+        var green = SIMD3<Float>(repeating: 0), blue = SIMD3<Float>(repeating: 0), ng: Float = 0, nb: Float = 0
+        for i in stride(from: 0, to: px.count, by: 4) {
+            let c = SIMD3(px[i], px[i + 1], px[i + 2])
+            if c.y > 0.04 && c.y > 1.5 * max(c.x, c.z) { green += c; ng += 1 }
+            else if c.z > 0.04 && c.z > 1.5 * max(c.x, c.y) { blue += c; nb += 1 }
+        }
+        if max(ng, nb) <= 20 { return nil }
+        return ng >= nb ? green / ng : blue / nb
+    }
+
+    func makeTarget(width: Int, height: Int) -> MTLTexture? {
+        let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false)
+        d.usage = [.shaderRead, .shaderWrite, .renderTarget]; d.storageMode = .private
+        return device.makeTexture(descriptor: d)
+    }
+
+    /// Renders at full size, waits for the finished frame, and returns elapsed milliseconds.
+    func timedRender(_ image: CIImage, to target: MTLTexture, bounds: CGRect) -> Double {
+        guard let cb = queue.makeCommandBuffer() else { return 0 }
+        let start = CACurrentMediaTime()
+        let dest = CIRenderDestination(mtlTexture: target, commandBuffer: cb)
+        dest.colorSpace = sRGB
+        guard let task = try? context.startTask(toRender: image, from: bounds, to: dest, at: .zero) else { return 0 }
+        cb.commit()
+        let info = try? task.waitUntilCompleted()
+        cb.waitUntilCompleted()
+        if ProcessInfo.processInfo.environment["GK_INFO"] != nil, let info {
+            print(String(format: "passes %d, pixels %.1fM, kernel time %.1f ms", info.passCount, Double(info.pixelsProcessed) / 1e6, info.kernelExecutionTime * 1000))
+        }
+        return (CACurrentMediaTime() - start) * 1000
+    }
+}
