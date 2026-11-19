@@ -38,3 +38,7 @@ so no full Xcode install is needed.
 
 `./build.sh` also turns `AppIcon.png` into the app icon. Test clips and renders are kept out of the
 repository.
+
+## License
+
+MIT, the same as 1Shot. See `LICENSE`.
