@@ -1,4 +1,4 @@
-// Draws KeyShot icon concepts from scratch using 1Shot's icon measurements (frame, green, ring, ticks),
+// Draws CompShot icon concepts from scratch using 1Shot's icon measurements (frame, green, ring, ticks),
 // plus a redraw of 1Shot's own icon to check the match.
 //   xcrun swift Tools/make-icon-concepts.swift outDir
 import AppKit

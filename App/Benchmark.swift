@@ -2,7 +2,7 @@ import AVFoundation
 import CoreImage
 
 /// Headless test: keys real frames at full size and reports timing.
-/// usage: KeyShot --benchmark clip outDir [startSeconds] [frames]
+/// usage: CompShot --benchmark clip outDir [startSeconds] [frames]
 func runBenchmark(_ a: [String]) async {
     do {
         let r = try Renderer()

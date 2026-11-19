@@ -1,5 +1,5 @@
 # Built app (./build.sh makes it)
-KeyShot.app/
+CompShot.app/
 .build/
 
 # Test renders, exports, screenshots and icon drafts: large, and made by the tools

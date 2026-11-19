@@ -32,14 +32,14 @@ final class BackgroundPreview {
         self.url = url
         if isImageFile(url) {
             guard let im = CIImage(contentsOf: url, options: [.applyOrientationProperty: true]) else {
-                throw NSError(domain: "KeyShot", code: 3, userInfo: [NSLocalizedDescriptionKey: "Could not read that image"])
+                throw NSError(domain: "CompShot", code: 3, userInfo: [NSLocalizedDescriptionKey: "Could not read that image"])
             }
             still = im
             return
         }
         let asset = AVURLAsset(url: url)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
-            throw NSError(domain: "KeyShot", code: 4, userInfo: [NSLocalizedDescriptionKey: "That file has no video"])
+            throw NSError(domain: "CompShot", code: 4, userInfo: [NSLocalizedDescriptionKey: "That file has no video"])
         }
         orient = orientation(for: try await track.load(.preferredTransform))
         duration = try await asset.load(.duration).seconds

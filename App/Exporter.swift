@@ -15,7 +15,7 @@ struct ExportJob {
 }
 
 private func exportError(_ s: String) -> NSError {
-    NSError(domain: "KeyShot", code: 10, userInfo: [NSLocalizedDescriptionKey: s])
+    NSError(domain: "CompShot", code: 10, userInfo: [NSLocalizedDescriptionKey: s])
 }
 
 /// Keys a whole clip and writes it out with its audio.
@@ -134,7 +134,7 @@ final class Exporter: @unchecked Sendable {
     }
 }
 
-/// Headless export for testing: KeyShot --export clip out.mp4|out.mov [background]
+/// Headless export for testing: CompShot --export clip out.mp4|out.mov [background]
 func runExportCLI(_ a: [String]) async {
     do {
         let r = try Renderer()

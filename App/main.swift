@@ -202,7 +202,7 @@ final class AppController: NSObject, NSApplicationDelegate, MTKViewDelegate {
 
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "KeyShot"; window.appearance = NSAppearance(named: .darkAqua); window.contentView = root
+        window.title = "CompShot"; window.appearance = NSAppearance(named: .darkAqua); window.contentView = root
         window.minSize = NSSize(width: 900, height: 600); window.center(); window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         updateScreenCard()
@@ -235,7 +235,7 @@ final class AppController: NSObject, NSApplicationDelegate, MTKViewDelegate {
     func buildMenu() {
         let bar = NSMenu()
         let appItem = NSMenuItem(); bar.addItem(appItem)
-        let app = NSMenu(); app.addItem(withTitle: "Quit KeyShot", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let app = NSMenu(); app.addItem(withTitle: "Quit CompShot", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = app
         let fileItem = NSMenuItem(); bar.addItem(fileItem)
         let file = NSMenu(title: "File")
@@ -253,9 +253,9 @@ final class AppController: NSObject, NSApplicationDelegate, MTKViewDelegate {
     func buildEmptyState() -> DropZone {
         let z = DropZone(); z.wantsLayer = true; z.layer?.backgroundColor = Theme.welcome.cgColor
         z.onDrop = { [unowned self] u in self.dropped(u) }
-        let eyebrow = NSTextField(labelWithString: "KEYSHOT"); eyebrow.font = .boldSystemFont(ofSize: 11); eyebrow.textColor = Theme.eyebrow
+        let eyebrow = NSTextField(labelWithString: "COMPSHOT"); eyebrow.font = .boldSystemFont(ofSize: 11); eyebrow.textColor = Theme.eyebrow
         let title = NSTextField(labelWithString: "Drop a green or blue screen video"); title.font = .boldSystemFont(ofSize: 30)
-        let sub = NSTextField(labelWithString: "KeyShot removes the screen and puts you on any background.")
+        let sub = NSTextField(labelWithString: "CompShot removes the screen and puts you on any background.")
         sub.font = .systemFont(ofSize: 13); sub.textColor = .secondaryLabelColor
         let open = NSButton(title: "Open Video…", target: action { [unowned self] _ in self.openPanel() }, action: #selector(Action.fire(_:)))
         open.bezelStyle = .rounded; open.controlSize = .large
@@ -456,7 +456,7 @@ final class AppController: NSObject, NSApplicationDelegate, MTKViewDelegate {
                 guard let t = try await asset.loadTracks(withMediaType: .video).first else { exportLabel.stringValue = "That file has no video"; return }
                 let (size, xf, rate) = try await t.load(.naturalSize, .preferredTransform, .nominalFrameRate)
                 duration = try await asset.load(.duration).seconds
-                orientation = KeyShot.orientation(for: xf)
+                orientation = CompShot.orientation(for: xf)
                 let side = orientation == .left || orientation == .right
                 videoSize = side ? CGSize(width: size.height, height: size.width) : size
                 fps = Double(rate > 0 ? rate : 30); scrub.duration = duration

@@ -1,4 +1,4 @@
-// UI — KeyShot's building blocks, styled to match 1Shot: the black transport bar and step tabs
+// UI — CompShot's building blocks, styled to match 1Shot: the black transport bar and step tabs
 // under the video, a scrub bar, and the 280-wide dark right panel with 1Shot-style rows.
 
 import AppKit

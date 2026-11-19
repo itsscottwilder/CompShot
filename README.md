@@ -1,4 +1,4 @@
-# KeyShot
+# CompShot
 
 A Mac app for keying green screen and blue screen talking-head video, from the makers of 1Shot.
 Drop in a clip, remove the screen, put yourself on any image or video background, and export.
@@ -26,7 +26,7 @@ You need an Apple Silicon Mac on macOS 26 and Apple's command-line developer too
 ./build.sh
 ```
 
-That makes `KeyShot.app` next to the script. The keyer's Metal code compiles when the app starts,
+That makes `CompShot.app` next to the script. The keyer's Metal code compiles when the app starts,
 so no full Xcode install is needed.
 
 ## Layout

@@ -29,7 +29,7 @@ final class Renderer {
 
     init() throws {
         guard let d = MTLCreateSystemDefaultDevice(), let q = d.makeCommandQueue() else {
-            throw NSError(domain: "KeyShot", code: 1, userInfo: [NSLocalizedDescriptionKey: "Metal is unavailable"])
+            throw NSError(domain: "CompShot", code: 1, userInfo: [NSLocalizedDescriptionKey: "Metal is unavailable"])
         }
         device = d; queue = q
         context = CIContext(mtlCommandQueue: q, options: [.cacheIntermediates: false])
