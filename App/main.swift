@@ -226,11 +226,13 @@ final class AppController: NSObject, NSApplicationDelegate, MTKViewDelegate {
             self.transport.setPlaying(self.player.rate != 0)
             self.syncBackground()
         }
+        ControlServer.shared.start(controller: self)   // 0.7: lets AI apps drive CompShot over MCP
         if let p = args.first, !p.hasPrefix("--") { open(URL(fileURLWithPath: p)) }
         if let i = args.firstIndex(of: "--bg"), i + 1 < args.count { loadBackground(URL(fileURLWithPath: args[i + 1])) }
         if let i = args.firstIndex(of: "--step"), i + 1 < args.count, let n = Int(args[i + 1]), let s = Step(rawValue: n) { tabs.select(s); show(s) }
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { true }
+    func applicationWillTerminate(_ n: Notification) { ControlServer.shared.stop() }
 
     func buildMenu() {
         let bar = NSMenu()
@@ -449,7 +451,7 @@ final class AppController: NSObject, NSApplicationDelegate, MTKViewDelegate {
         if t.conforms(to: .image) || (clipURL != nil && NSEvent.modifierFlags.contains(.option)) { loadBackground(u) } else { open(u) }
         return true
     }
-    func open(_ url: URL) {
+    func open(_ url: URL, play: Bool = !args.contains("--paused")) {
         Task { @MainActor in
             do {
                 let asset = AVURLAsset(url: url)
@@ -466,7 +468,7 @@ final class AppController: NSObject, NSApplicationDelegate, MTKViewDelegate {
                 item.add(o); output = o; frame = nil; needsDetect = true; screenPicked = false; clipURL = url
                 player.replaceCurrentItem(with: item)
                 if let i = args.firstIndex(of: "--time"), i + 1 < args.count, let t = Double(args[i + 1]) { seek(t) }
-                if !args.contains("--paused") { player.play() }
+                if play { player.play() }
                 window.title = url.lastPathComponent
                 emptyState.isHidden = true
                 updateExportSpecs()
@@ -553,9 +555,23 @@ final class AppController: NSObject, NSApplicationDelegate, MTKViewDelegate {
         p.allowedContentTypes = [transparent ? .quickTimeMovie : .mpeg4Movie]
         p.nameFieldStringValue = clip.deletingPathExtension().lastPathComponent + (transparent ? " keyed.mov" : " keyed.mp4")
         guard p.runModal() == .OK, let out = p.url else { return }
+        startExport(to: out, transparent: transparent, reveal: true)
+    }
+
+    /// What the last export did, for the MCP status (main thread only).
+    var exportStatus: [String: Any] = [:]
+    var exportFraction = 0.0
+
+    /// Starts an export of the current clip with every current setting. Returns false if one is already running.
+    @discardableResult
+    func startExport(to out: URL, transparent: Bool, reveal: Bool) -> Bool {
+        guard let clip = clipURL, exporter == nil else { return false }
+        exportKind.selectItem(at: transparent ? 1 : 0); updateExportSpecs()
         let job = ExportJob(clip: clip, output: out, kind: transparent ? .transparent : .withBackground, settings: settings,
                             backdrop: backdrop, background: background?.url, blur: bgBlur, placement: placement)
         let ex = Exporter(); exporter = ex
+        exportFraction = 0
+        exportStatus = ["running": true, "output": out.path, "kind": transparent ? "transparent" : "mp4"]
         player.pause(); syncBackground()
         tabs.select(.export); show(.export)
         exportButton.isEnabled = false; cancelButton.isHidden = false; exportProgress.isHidden = false
@@ -563,20 +579,25 @@ final class AppController: NSObject, NSApplicationDelegate, MTKViewDelegate {
         let start = CACurrentMediaTime(), rr = r
         Task.detached {
             do {
-                try await ex.run(job, renderer: rr) { f in DispatchQueue.main.async { self.exportProgress.doubleValue = f } }
+                try await ex.run(job, renderer: rr) { f in DispatchQueue.main.async { self.exportProgress.doubleValue = f; self.exportFraction = f } }
                 await MainActor.run {
-                    self.exportLabel.stringValue = String(format: "Saved in %.0f s", CACurrentMediaTime() - start)
-                    NSWorkspace.shared.activateFileViewerSelecting([out])
+                    let secs = CACurrentMediaTime() - start
+                    self.exportLabel.stringValue = String(format: "Saved in %.0f s", secs)
+                    self.exportStatus.merge(["running": false, "result": "saved", "seconds": (secs * 10).rounded() / 10]) { $1 }
+                    if reveal { NSWorkspace.shared.activateFileViewerSelecting([out]) }
                 }
             } catch is CancellationError {
-                await MainActor.run { self.exportLabel.stringValue = "Export cancelled" }
+                await MainActor.run { self.exportLabel.stringValue = "Export cancelled"
+                    self.exportStatus.merge(["running": false, "result": "cancelled"]) { $1 } }
             } catch {
-                await MainActor.run { self.exportLabel.stringValue = "Export failed: \(error.localizedDescription)" }
+                await MainActor.run { self.exportLabel.stringValue = "Export failed: \(error.localizedDescription)"
+                    self.exportStatus.merge(["running": false, "result": "failed", "error": error.localizedDescription]) { $1 } }
             }
             await MainActor.run {
                 self.exportButton.isEnabled = true; self.cancelButton.isHidden = true; self.exportProgress.isHidden = true; self.exporter = nil
             }
         }
+        return true
     }
 
     // MARK: Speed
