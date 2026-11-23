@@ -11,3 +11,7 @@ output/
 *.m4v
 
 .DS_Store
+
+# Test clips and CorridorKey reference mattes (large, kept locally)
+clips/
+reference/
