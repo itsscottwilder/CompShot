@@ -235,18 +235,22 @@ func backgroundFrame(_ url: URL, at t: Double) async throws -> CIImage {
 // MARK: - Commands
 
 extension AppController {
-    static let pageNames: [Step: String] = [.key: "key", .edges: "edges", .compose: "compose", .export: "export"]
-    static let viewNames: [ViewMode: String] = [.original: "original", .matte: "matte", .key: "key"]
+    static let pageNames: [Step: String] = [.key: "key", .design: "design", .export: "export"]
+    /// 0.8 merged Key, Edges and Compose; the old names still open that page.
+    static let pageAliases: [String: Step] = ["edges": .key, "compose": .key, "keyandcompose": .key]
+    static let viewNames: [ViewMode: String] = [.original: "original", .matte: "matte", .key: "key", .split: "split"]
     static let backdropNames: [Backdrop: String] = [.blue: "blue", .checker: "checker", .custom: "background"]
 
     /// Key and Edges settings by name: the slider each one moves and its range.
     static let keyControls: [(name: String, key: ReferenceWritableKeyPath<AppController, Float>, lo: Float, hi: Float, page: Step)] = [
         ("strength", \.strength, 0.5, 2.5, .key), ("softness", \.softness, 0.05, 1, .key),
         ("spill", \.spill, 0, 1, .key), ("spillFirmness", \.spillFirmness, 0, 1, .key),
-        ("shrink", \.shrinkEdges, 0, 3, .edges), ("smooth", \.smoothEdges, 0, 3, .edges),
-        ("edgeColor", \.edgeRepair, 0, 1, .edges), ("correction", \.correction, 0, 1, .edges),
-        ("maskLeft", \.maskLeft, 0, 0.5, .edges), ("maskRight", \.maskRight, 0, 0.5, .edges),
-        ("maskTop", \.maskTop, 0, 0.5, .edges), ("maskBottom", \.maskBottom, 0, 0.5, .edges),
+        ("shrink", \.shrinkEdges, 0, 3, .key), ("smooth", \.smoothEdges, 0, 3, .key),
+        ("edgeColor", \.edgeRepair, 0, 1, .key), ("correction", \.correction, 0, 1, .key),
+        ("maskLeft", \.maskLeft, 0, 0.5, .key), ("maskRight", \.maskRight, 0, 0.5, .key),
+        ("maskTop", \.maskTop, 0, 0.5, .key), ("maskBottom", \.maskBottom, 0, 0.5, .key),
+        ("lightWrap", \.lightWrap, 0, 1, .key), ("wrapWidth", \.wrapWidth, 2, 40, .key),
+        ("diffusion", \.diffusion, 0, 1, .key), ("soften", \.soften, 0, 2, .key),
     ]
 
     func mcpHandle(_ command: String, _ args: [String: Any], _ done: @escaping MCPReply) {
@@ -259,6 +263,7 @@ extension AppController {
             case "set_background": try mcpSetBackground(args, done)
             case "set_placement":  done(.success(try mcpSetPlacement(args)))
             case "set_view":       done(.success(try mcpSetView(args)))
+            case "set_visual":     done(.success(try mcpSetVisual(args)))
             case "seek":           done(.success(try mcpSeek(args)))
             case "export":         try mcpExport(args, done)
             case "cancel_export":
@@ -304,10 +309,22 @@ extension AppController {
         let d = settings.screenDefaults
         s["defaultsForThisScreen"] = ["strength": MCP.r(d.strength), "softness": MCP.r(d.softness), "spill": MCP.r(d.spill),
                                       "spillFirmness": MCP.r(d.spillFirmness), "shrink": 0, "smooth": 0, "edgeColor": 1,
-                                      "correction": 1, "maskLeft": 0, "maskRight": 0, "maskTop": 0, "maskBottom": 0]
+                                      "correction": 1, "maskLeft": 0, "maskRight": 0, "maskTop": 0, "maskBottom": 0,
+                                      "lightWrap": 0, "wrapWidth": 12, "diffusion": 0, "soften": 0]
         var bg: [String: Any] = ["choice": Self.backdropNames[backdrop]!, "blur": MCP.r(bgBlur, 1)]
         if let b = background { bg["file"] = b.url.path; bg["isVideo"] = b.isVideo } else { bg["file"] = NSNull() }
         s["background"] = bg
+        let g = look.settings
+        var visual: [String: Any] = ["grades": look.wholePicture ? "wholePicture" : "person", "bypassed": gradeBypass,
+                                     "cameraLUT": design?.lutName(.camera) ?? NSNull(), "creativeLUT": design?.lutName(.creative) ?? NSNull(),
+                                     "blackPoint": MCP.r(g.blackPoint), "whitePoint": MCP.r(g.whitePoint)]
+        for row in VisualDesignPanel.rows { visual[row.title.lowercased()] = g[keyPath: row.key] }
+        var curves: [String: Any] = [:]
+        for (c, name) in zip(Curves.Channel.allCases, ["rgb", "red", "green", "blue"]) where !g.curves[c].isIdentity {
+            curves[name] = g.curves[c].points.map { [Int(($0.x * 255).rounded()), Int(($0.y * 255).rounded())] }
+        }
+        visual["curves"] = curves.isEmpty ? "straight" : curves as Any
+        s["visualDesign"] = visual
         s["placement"] = ["scale": MCP.r(placement.scale), "x": MCP.r(placement.x), "y": MCP.r(placement.y)]
         var ex = exportStatus
         if exporter != nil { ex["running"] = true; ex["progress"] = MCP.r(exportFraction, 2) }
@@ -349,12 +366,12 @@ extension AppController {
         var views: [ViewMode] = []
         for v in (args["views"] as? [String]) ?? [(args["view"] as? String) ?? Self.viewNames[mode]!] {
             guard let m = Self.viewNames.first(where: { $0.value == v.lowercased() })?.key else {
-                throw MCPError("Views are original, matte and key (not “\(v)”).")
+                throw MCPError("Views are original, matte, key and split (not “\(v)”).")
             }
             views.append(m)
         }
         guard !views.isEmpty, views.count <= 3 else { throw MCPError("Give one to three views.") }
-        var shownBackdrop = currentStep.showsComposition ? backdrop : testBackdrop
+        var shownBackdrop = backdrop
         if let b = args["backdrop"] as? String {
             guard let v = Self.backdropNames.first(where: { $0.value == b.lowercased() })?.key else {
                 throw MCPError("backdrop is blue, checker or background.")
@@ -373,6 +390,8 @@ extension AppController {
         let maxWidth = Int(min(max(MCP.num(args["maxWidth"]) ?? 1280, 320), 1920))
         let measure = args["measure"] as? Bool ?? true
         let s = settings, place = placement, blur = bgBlur, rr = r, bgURL = background?.url
+        let grade: Look? = look.isNeutral ? nil : look
+        let splitAt = split, bl = blend
         let screenKind = s.isBlueScreen
 
         Task { @MainActor in
@@ -382,7 +401,7 @@ extension AppController {
                 let result: [String: Any] = try await Task.detached {
                     var images: [[String: Any]] = []
                     for m in views {
-                        var im = rr.compose(src, settings: s, mode: m, backdrop: shownBackdrop, custom: bg, blur: blur, placement: place)
+                        var im = rr.compose(src, settings: s, mode: m, backdrop: shownBackdrop, custom: bg, blur: blur, placement: place, look: grade, split: splitAt, blend: bl)
                         let e = src.extent
                         var area = e
                         if let c = crop {
@@ -452,28 +471,28 @@ extension AppController {
             }
         }
 
-        var changed: [String] = [], touchedEdges = false, touchedKey = false
+        var changed: [String] = []
         if reset {
             if let f = frame, let c = r.detectScreen(f) { settings.screen = c; screenPicked = false }
             applyScreenDefaults()
-            resetSliders([\.shrinkEdges, \.smoothEdges, \.edgeRepair, \.correction, \.maskLeft, \.maskRight, \.maskTop, \.maskBottom])
-            changed.append("reset"); touchedKey = true
+            resetSliders([\.shrinkEdges, \.smoothEdges, \.edgeRepair, \.correction]); resetMask()
+            blend = Blend(); refreshSliders([\.lightWrap, \.wrapWidth, \.diffusion, \.soften])
+            changed.append("reset")
         }
         if let n = newScreen {
             let wasBlue = settings.isBlueScreen
             settings.screen = n.color; screenPicked = n.picked
             if settings.isBlueScreen != wasBlue { applyScreenDefaults(); changed.append("screen type changed, so its defaults were loaded") }
-            changed.append("screen"); touchedKey = true
+            changed.append("screen")
         }
         for (c, v) in values {
             self[keyPath: c.key] = v
             changed.append(c.name)
-            if c.page == .edges { touchedEdges = true } else { touchedKey = true }
         }
         guard !changed.isEmpty else { throw MCPError("Nothing to change. Pass screen, reset, or a setting such as strength.") }
         refreshSliders(Self.keyControls.map(\.key))
         updateScreenCard()
-        goTo(touchedEdges && !touchedKey ? .edges : .key)
+        goTo(.key)
         var answer = mcpStatus()
         answer["changed"] = changed
         if !notes.isEmpty { answer["notes"] = notes }
@@ -496,7 +515,7 @@ extension AppController {
                 default: done(.failure(MCPError("backdrop is blue, checker or background."))); return
                 }
             }
-            goTo(.compose)
+            goTo(.key)
             done(.success(mcpStatus()))
         }
         guard let u = MCP.path(args["path"]) else {
@@ -533,20 +552,55 @@ extension AppController {
         }
         placement = p
         refreshSliders([\.placeScale, \.placeX, \.placeY])
-        goTo(.compose)
+        goTo(.key)
         return mcpStatus()
+    }
+
+    // MARK: set_visual
+
+    /// The Visual Design sliders by name (as status reports them), with their ranges.
+    static let visualControls: [(name: String, key: WritableKeyPath<ColorGrade.Settings, Double>, lo: Double, hi: Double)] =
+        VisualDesignPanel.rows.map { ($0.title.lowercased(), $0.key, $0.min, 100) }
+        + [("blackPoint", \.blackPoint, 0, 0.9), ("whitePoint", \.whitePoint, 0.1, 1)]
+
+    func mcpSetVisual(_ args: [String: Any]) throws -> Any {
+        try requireNoExport()
+        var s = look.settings
+        if args["reset"] as? Bool == true { let curves = s.curves; s = ColorGrade.Settings(); s.curves = curves }
+        var changed: [String] = []
+        for c in Self.visualControls {
+            guard let raw = args[c.name] else { continue }
+            guard let v = MCP.num(raw) else { throw MCPError("\(c.name) must be a number.") }
+            s[keyPath: c.key] = min(max(v, c.lo), c.hi); changed.append(c.name)
+        }
+        if s.whitePoint - s.blackPoint < 0.05 { throw MCPError("whitePoint must be above blackPoint.") }
+        if let g = args["grades"] as? String {
+            switch g.lowercased() {
+            case "person", "you": look.wholePicture = false
+            case "wholepicture", "whole", "picture": look.wholePicture = true
+            default: throw MCPError("grades is person or wholePicture.")
+            }
+            design.setWholePicture(look.wholePicture); changed.append("grades")
+        }
+        if args["reset"] as? Bool == true { changed.append("reset") }
+        guard !changed.isEmpty else { throw MCPError("Nothing to change. Pass a setting such as exposure, or grades.") }
+        look.settings = s; design.setSettings(s)
+        var answer = mcpStatus(); answer["changed"] = changed
+        return answer
     }
 
     // MARK: set_view, seek
 
     func mcpSetView(_ args: [String: Any]) throws -> Any {
         if let p = args["page"] as? String {
-            guard let s = Self.pageNames.first(where: { $0.value == p.lowercased() })?.key else { throw MCPError("page is key, edges, compose or export.") }
+            let name = p.lowercased().replacingOccurrences(of: " ", with: "")
+            guard let s = Self.pageNames.first(where: { $0.value == name })?.key ?? Self.pageAliases[name] else { throw MCPError("page is key (Key and Compose), design or export.") }
             goTo(s)
         }
         if let v = args["view"] as? String {
-            guard let m = Self.viewNames.first(where: { $0.value == v.lowercased() })?.key else { throw MCPError("view is original, matte or key.") }
-            mode = m; transport.viewSwitch.selectedSegment = m.rawValue
+            let name = v.lowercased() == "final" ? "key" : v.lowercased()
+            guard let m = Self.viewNames.first(where: { $0.value == name })?.key else { throw MCPError("view is key (Final), matte, split or original.") }
+            mode = m; viewBar.setMode(m)
         }
         return mcpStatus()
     }

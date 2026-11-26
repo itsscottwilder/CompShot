@@ -12,6 +12,8 @@ struct ExportJob {
     var background: URL?
     var blur: Float
     var placement = Placement()
+    var look: Look? = nil      // Visual Design (never bypassed in export)
+    var blend = Blend()
 }
 
 private func exportError(_ s: String) -> NSError {
@@ -94,9 +96,9 @@ final class Exporter: @unchecked Sendable {
                     let pts = CMSampleBufferGetPresentationTimeStamp(s)
                     let im = upright(src, o)
                     let out = transparent
-                        ? r.place(r.keyer.apply(to: im, settings: job.settings), job.placement)
+                        ? r.person(im, settings: job.settings, look: job.look, placement: job.placement, blend: job.blend, forceGrade: true)
                         : r.compose(im, settings: job.settings, mode: .key, backdrop: job.backdrop,
-                                    custom: background?.frame(at: pts.seconds), blur: job.blur, placement: job.placement)
+                                    custom: background?.frame(at: pts.seconds), blur: job.blur, placement: job.placement, look: job.look, blend: job.blend)
                     var pb: CVPixelBuffer?
                     guard let pool = adaptor.pixelBufferPool, CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pb) == kCVReturnSuccess, let pb else { return }
                     if transparent {

@@ -13,11 +13,47 @@ enum Theme {
     static let playhead = NSColor(srgbRed: 1.0, green: 0.78, blue: 0.16, alpha: 1)          // 1Shot's timeline yellow
 }
 
+/// 0.8: Key, Edges and Compose became one page, because every one of those controls changes what the others need.
 enum Step: Int, CaseIterable {
-    case key, edges, compose, export
-    var title: String { ["Key", "Edges", "Compose", "Export"][rawValue] }
-    /// Compose and Export show the finished picture; Key and Edges show the key over a test background.
-    var showsComposition: Bool { self == .compose || self == .export }
+    case key, design, export
+    var title: String { ["Key and Compose", "Visual Design", "Export"][rawValue] }
+}
+
+/// The bar above the video (0.8): what you see, and what's behind you. One choice for every page.
+final class ViewBar: NSView {
+    static let modes: [ViewMode] = [.key, .matte, .split, .original]
+    static let backdrops: [Backdrop] = [.custom, .checker, .blue]
+    var onView: ((ViewMode) -> Void)?, onBackdrop: ((Backdrop) -> Void)?
+    private let viewSwitch = NSSegmentedControl(labels: ["Final", "Matte", "Split", "Original"], trackingMode: .selectOne, target: nil, action: nil)
+    private let backdropSwitch = NSSegmentedControl(labels: ["Background", "Checker", "Blue"], trackingMode: .selectOne, target: nil, action: nil)
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true; layer?.backgroundColor = Theme.bar.cgColor
+        viewSwitch.toolTip = "Final: the finished picture · Matte: white is kept, black is removed · Split: matte on the left, final on the right (drag the line) · Original: the footage"
+        backdropSwitch.toolTip = "What's behind you. Checker and Blue make leftover screen and fringes easy to spot."
+        for (c, sel) in [(viewSwitch, #selector(viewChanged)), (backdropSwitch, #selector(backdropChanged))] {
+            c.controlSize = .small; c.refusesFirstResponder = true; c.target = self; c.action = sel
+        }
+        let viewLabel = Self.label("View"), bgLabel = Self.label("Behind you")
+        for v in [viewLabel, viewSwitch, bgLabel, backdropSwitch] as [NSView] { v.translatesAutoresizingMaskIntoConstraints = false; addSubview(v) }
+        NSLayoutConstraint.activate([
+            viewLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12), viewLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            viewSwitch.leadingAnchor.constraint(equalTo: viewLabel.trailingAnchor, constant: 8), viewSwitch.centerYAnchor.constraint(equalTo: centerYAnchor),
+            backdropSwitch.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10), backdropSwitch.centerYAnchor.constraint(equalTo: centerYAnchor),
+            bgLabel.trailingAnchor.constraint(equalTo: backdropSwitch.leadingAnchor, constant: -8), bgLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            bgLabel.leadingAnchor.constraint(greaterThanOrEqualTo: viewSwitch.trailingAnchor, constant: 12),
+        ])
+        setMode(.key); setBackdrop(.blue)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    private static func label(_ s: String) -> NSTextField {
+        let l = NSTextField(labelWithString: s); l.font = .systemFont(ofSize: 11, weight: .medium); l.textColor = NSColor.white.withAlphaComponent(0.55); return l
+    }
+    func setMode(_ m: ViewMode) { viewSwitch.selectedSegment = Self.modes.firstIndex(of: m) ?? 0 }
+    func setBackdrop(_ b: Backdrop) { backdropSwitch.selectedSegment = Self.backdrops.firstIndex(of: b) ?? 2 }
+    @objc private func viewChanged() { onView?(Self.modes[viewSwitch.selectedSegment]) }
+    @objc private func backdropChanged() { onBackdrop?(Self.backdrops[backdropSwitch.selectedSegment]) }
 }
 
 /// 1Shot's step tabs: dimmed white text, the selected one bright with a faint highlight.
@@ -58,12 +94,11 @@ final class StepTabBar: NSView {
     }
 }
 
-/// 1Shot's transport bar, plus the Original / Matte / Key view switch on the right.
+/// 1Shot's transport bar.
 final class TransportBar: NSView {
     var onStart: (() -> Void)?, onBack: (() -> Void)?, onPlay: (() -> Void)?, onForward: (() -> Void)?, onEnd: (() -> Void)?
-    var onLoop: (() -> Void)?, onView: ((Int) -> Void)?
+    var onLoop: (() -> Void)?
     private let play: NSButton, loop: NSButton
-    let viewSwitch = NSSegmentedControl(labels: ["Original", "Matte", "Key"], trackingMode: .selectOne, target: nil, action: nil)
     let status = NSTextField(labelWithString: "")
     private var playing = false
 
@@ -79,15 +114,11 @@ final class TransportBar: NSView {
             b.target = self; b.action = sel
         }
         let controls = NSStackView(views: [start, back, play, fwd, end]); controls.spacing = 14
-        viewSwitch.controlSize = .small; viewSwitch.selectedSegment = 2; viewSwitch.target = self; viewSwitch.action = #selector(viewChanged)
-        viewSwitch.toolTip = "Original: the footage · Matte: white is kept, black is removed · Key: the result"
-        viewSwitch.refusesFirstResponder = true
         status.font = .monospacedDigitSystemFont(ofSize: 10.5, weight: .medium); status.textColor = NSColor.white.withAlphaComponent(0.55)
-        for v in [controls, loop, viewSwitch, status] as [NSView] { v.translatesAutoresizingMaskIntoConstraints = false; addSubview(v) }
+        for v in [controls, loop, status] as [NSView] { v.translatesAutoresizingMaskIntoConstraints = false; addSubview(v) }
         NSLayoutConstraint.activate([
             controls.centerXAnchor.constraint(equalTo: centerXAnchor), controls.centerYAnchor.constraint(equalTo: centerYAnchor),
             loop.leadingAnchor.constraint(equalTo: controls.trailingAnchor, constant: 26), loop.centerYAnchor.constraint(equalTo: centerYAnchor),
-            viewSwitch.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10), viewSwitch.centerYAnchor.constraint(equalTo: centerYAnchor),
             status.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12), status.centerYAnchor.constraint(equalTo: centerYAnchor),
             status.trailingAnchor.constraint(lessThanOrEqualTo: controls.leadingAnchor, constant: -12),
         ])
@@ -121,7 +152,6 @@ final class TransportBar: NSView {
     @objc private func s4() { onForward?() }
     @objc private func s5() { onEnd?() }
     @objc private func s6() { onLoop?() }
-    @objc private func viewChanged() { onView?(viewSwitch.selectedSegment) }
 }
 
 /// A slim timeline: drag anywhere to scrub. Shows the time on the left and the length on the right.
@@ -254,34 +284,54 @@ final class KeyView: MTKView {
     }
 }
 
-/// 1Shot's graphic handles, for the keyed person in the Compose step: drag a corner to resize
-/// (the opposite corner stays put), drag the middle or anywhere inside to move. Shift = fine.
+/// The handles on the video (Key and Compose page). The box is the part of the frame you keep, where it sits:
+/// drag a corner to resize (the opposite corner stays put), the middle to move, a side to mask that edge
+/// (0.8: the mask sliders moved onto the video). In Split view, the line between matte and final drags too.
+/// Shift = fine control.
 final class PlacementHandles: NSView {
-    enum Grab: Equatable { case move, corner(Int) }   // 0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right
+    enum Grab: Equatable { case move, corner(Int), edge(Int), split }   // corners 0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right
+                                                                       // edges 0 left, 1 right, 2 top, 3 bottom
     var box: NSRect? { didSet { if box != oldValue { needsDisplay = true; window?.invalidateCursorRects(for: self) } } }
+    var splitX: CGFloat? { didSet { if splitX != oldValue { needsDisplay = true; window?.invalidateCursorRects(for: self) } } }
     var onGrab: ((Grab, NSPoint) -> Void)?
     var onDrag: ((NSPoint, Bool) -> Void)?
     var onRelease: (() -> Void)?
-    private let corner: CGFloat = 11, centre: CGFloat = 26
+    private let corner: CGFloat = 11, centre: CGFloat = 26, edge: CGFloat = 6
     private var dragging = false
+    private static let maskColor = NSColor.systemOrange
 
     override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     private func corners(_ r: NSRect) -> [NSPoint] {
         [NSPoint(x: r.minX, y: r.minY), NSPoint(x: r.maxX, y: r.minY), NSPoint(x: r.minX, y: r.maxY), NSPoint(x: r.maxX, y: r.maxY)]
     }
+    /// Where each side can be grabbed (between the corners).
+    private func edgeRects(_ r: NSRect) -> [NSRect] {
+        let w = max(0, r.width - corner * 2), h = max(0, r.height - corner * 2)
+        return [NSRect(x: r.minX - edge, y: r.minY + corner, width: edge * 2, height: h),
+                NSRect(x: r.maxX - edge, y: r.minY + corner, width: edge * 2, height: h),
+                NSRect(x: r.minX + corner, y: r.minY - edge, width: w, height: edge * 2),
+                NSRect(x: r.minX + corner, y: r.maxY - edge, width: w, height: edge * 2)]
+    }
     private func grab(at p: NSPoint) -> Grab? {
-        guard let r = box else { return nil }
-        for (i, c) in corners(r).enumerated() where abs(p.x - c.x) <= corner && abs(p.y - c.y) <= corner { return .corner(i) }
-        return r.contains(p) || hypot(p.x - r.midX, p.y - r.midY) <= centre / 2 + 4 ? .move : nil
+        if let r = box {
+            for (i, c) in corners(r).enumerated() where abs(p.x - c.x) <= corner && abs(p.y - c.y) <= corner { return .corner(i) }
+            for (i, e) in edgeRects(r).enumerated() where e.contains(p) { return .edge(i) }
+            if hypot(p.x - r.midX, p.y - r.midY) <= centre / 2 + 4 { return .move }
+        }
+        if let x = splitX, abs(p.x - x) <= edge { return .split }
+        if let r = box, r.contains(p) { return .move }
+        return nil
     }
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden else { return nil }
         return grab(at: convert(point, from: superview)) != nil ? self : nil
     }
     override func resetCursorRects() {
+        if let x = splitX { addCursorRect(NSRect(x: x - edge, y: 0, width: edge * 2, height: bounds.height), cursor: .resizeLeftRight) }
         guard let r = box else { return }
         addCursorRect(r, cursor: .openHand)
+        for (i, e) in edgeRects(r).enumerated() { addCursorRect(e, cursor: i < 2 ? .resizeLeftRight : .resizeUpDown) }
         for c in corners(r) { addCursorRect(NSRect(x: c.x - corner, y: c.y - corner, width: corner * 2, height: corner * 2), cursor: .crosshair) }
     }
     override func mouseDown(with e: NSEvent) {
@@ -300,11 +350,18 @@ final class PlacementHandles: NSView {
         dragging = false; onRelease?(); window?.invalidateCursorRects(for: self)
     }
     override func draw(_ dirtyRect: NSRect) {
-        guard let r = box else { return }
         let shadow = NSShadow(); shadow.shadowColor = NSColor.black.withAlphaComponent(0.6); shadow.shadowBlurRadius = 3; shadow.shadowOffset = .zero
+        if let x = splitX { drawSplit(x, shadow) }
+        guard let r = box else { return }
         NSGraphicsContext.saveGraphicsState(); shadow.set()
         let accent = NSColor(srgbRed: 0.24, green: 0.80, blue: 0.78, alpha: 1)
         let outline = NSBezierPath(rect: r.insetBy(dx: 0.5, dy: 0.5)); outline.lineWidth = 1.5; accent.setStroke(); outline.stroke()
+        // Mask grips in the middle of each side.
+        for (i, m) in [NSPoint(x: r.minX, y: r.midY), NSPoint(x: r.maxX, y: r.midY), NSPoint(x: r.midX, y: r.minY), NSPoint(x: r.midX, y: r.maxY)].enumerated() {
+            let size = i < 2 ? NSSize(width: 6, height: 26) : NSSize(width: 26, height: 6)
+            let g = NSBezierPath(roundedRect: NSRect(x: m.x - size.width / 2, y: m.y - size.height / 2, width: size.width, height: size.height), xRadius: 3, yRadius: 3)
+            Self.maskColor.setFill(); g.fill(); g.lineWidth = 1; NSColor.white.setStroke(); g.stroke()
+        }
         for c in corners(r) {
             let h = NSBezierPath(rect: NSRect(x: c.x - 5.5, y: c.y - 5.5, width: 11, height: 11))
             NSColor.white.setFill(); h.fill(); h.lineWidth = 1.5; accent.setStroke(); h.stroke()
@@ -320,5 +377,23 @@ final class PlacementHandles: NSView {
             arrows.line(to: NSPoint(x: tip.x - dx * k - dy * k, y: tip.y - dy * k - dx * k))
         }
         arrows.lineWidth = 1.5; arrows.lineCapStyle = .round; arrows.lineJoinStyle = .round; NSColor.white.setStroke(); arrows.stroke()
+    }
+    private func drawSplit(_ x: CGFloat, _ shadow: NSShadow) {
+        NSGraphicsContext.saveGraphicsState(); shadow.set()
+        NSColor.white.setFill(); NSRect(x: x - 1, y: 0, width: 2, height: bounds.height).fill()
+        let knob = NSBezierPath(roundedRect: NSRect(x: x - 9, y: 10, width: 18, height: 26), xRadius: 5, yRadius: 5)
+        NSColor.white.setFill(); knob.fill()
+        NSGraphicsContext.restoreGraphicsState()
+        let arrows = NSBezierPath()
+        for d in [-1.0, 1.0] as [CGFloat] {
+            arrows.move(to: NSPoint(x: x + d * 2, y: 18)); arrows.line(to: NSPoint(x: x + d * 5.5, y: 23)); arrows.line(to: NSPoint(x: x + d * 2, y: 28))
+        }
+        arrows.lineWidth = 1.5; arrows.lineCapStyle = .round; NSColor.black.withAlphaComponent(0.7).setStroke(); arrows.stroke()
+        let a: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: NSColor.white]
+        let m = NSAttributedString(string: "Matte", attributes: a), f = NSAttributedString(string: "Final", attributes: a)
+        for (t, at) in [(m, NSPoint(x: x - 16 - m.size().width, y: 15)), (f, NSPoint(x: x + 16, y: 15))] {
+            let bg = NSBezierPath(roundedRect: NSRect(x: at.x - 6, y: at.y - 2, width: t.size().width + 12, height: t.size().height + 4), xRadius: 4, yRadius: 4)
+            NSColor.black.withAlphaComponent(0.55).setFill(); bg.fill(); t.draw(at: at)
+        }
     }
 }

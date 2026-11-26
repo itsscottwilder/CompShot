@@ -1,4 +1,4 @@
-// compshot-mcp — the MCP server that AI apps start to drive CompShot (version 0.7).
+// compshot-mcp — the MCP server that AI apps start to drive CompShot (version 0.8).
 //
 // It speaks MCP (JSON-RPC 2.0 over stdin/stdout, the standard every MCP client uses: the Claude
 // desktop app, Claude Code, Cursor, ChatGPT desktop, VS Code and others) and passes each tool call
@@ -11,7 +11,7 @@
 
 import Foundation
 
-let serverVersion = "0.7.0"
+let serverVersion = "0.8.0"
 let bundleID = "local.compshot"
 let supportPath = NSHomeDirectory() + "/Library/Application Support/CompShot"
 let socketPath = supportPath + "/mcp.sock"
@@ -112,7 +112,7 @@ func prop(_ type: Any, _ description: String) -> [String: Any] { ["type": type, 
 let tools: [[String: Any]] = [
     [
         "name": "status",
-        "description": "What CompShot has open: the clip (size, fps, length), playhead, page and view, the screen color (green or blue, detected or picked), every key setting with the defaults for this kind of screen, the background, the size and position, and any export (with progress). Opens the app if it isn't running. Pass wait (up to 45 s) to wait for a running export to finish.",
+        "description": "What CompShot has open: the clip (size, fps, length), playhead, page and view, the screen color (green or blue, detected or picked), every key setting with the defaults for this kind of screen, the background, the size and position, the Visual Design grade (white balance, LUTs, levels, color sliders; set by the user on the Visual Design page), and any export (with progress). Opens the app if it isn't running. Pass wait (up to 45 s) to wait for a running export to finish.",
         "inputSchema": ["type": "object", "properties": [
             "wait": prop("number", "Seconds to wait for a running export to finish (0–45). Leave out to answer right away.")
         ]],
@@ -127,11 +127,11 @@ let tools: [[String: Any]] = [
     ],
     [
         "name": "snapshot",
-        "description": "Pictures of one frame with the current settings, plus measures of the key on that frame (removed, solid and see-through share; screen still showing; screen tint left on the person). Views: key (the person on the backdrop, moved and resized as set), matte (white = kept, black = removed, grey = see-through) and original (the footage). Ask for views [\"key\", \"matte\"] to judge a key; checker as the backdrop makes leftover screen and fringes easy to see. crop zooms into part of the frame, e.g. the hair, at full detail. Changes nothing.",
+        "description": "Pictures of one frame with the current settings, plus measures of the key on that frame (removed, solid and see-through share; screen still showing; screen tint left on the person). Views: key (the finished picture: the person on the backdrop, moved, resized and graded as set; Final in the app), matte (white = kept, black = removed, grey = see-through), split (matte left of the split line, final right of it, as the app shows) and original (the footage). Ask for views [\"key\", \"matte\"] to judge a key; checker as the backdrop makes leftover screen and fringes easy to see. crop zooms into part of the frame, e.g. the hair, at full detail. Changes nothing.",
         "inputSchema": ["type": "object", "properties": [
             "at": prop("number", "Seconds from the start of the clip. Default: the playhead."),
-            "views": ["type": "array", "items": ["type": "string", "enum": ["key", "matte", "original"]], "description": "One to three views, one image each. Default: the view the app shows."],
-            "backdrop": ["type": "string", "enum": ["blue", "checker", "background"], "description": "Behind the person in the key view. Default: what the app shows on its current page."],
+            "views": ["type": "array", "items": ["type": "string", "enum": ["key", "matte", "split", "original"]], "description": "One to three views, one image each. Default: the view the app shows."],
+            "backdrop": ["type": "string", "enum": ["blue", "checker", "background"], "description": "Behind the person in the key view. Default: what the app shows."],
             "crop": ["type": "array", "items": ["type": "number"], "description": "[x, y, width, height] as fractions of the frame (y from the top), e.g. [0.35, 0.05, 0.3, 0.3] for the top of the head."],
             "maxWidth": prop("number", "Image width in pixels, 320–1920 (default 1280)."),
             "measure": prop("boolean", "Include the key measures (default true).")
@@ -140,7 +140,7 @@ let tools: [[String: Any]] = [
     ],
     [
         "name": "set_key",
-        "description": "Changes the key (Key and Edges pages). Only what you pass changes. Key page: strength 0.5–2.5 (how firmly the screen is removed; raise if screen or floor still shows, lower if hair thins), softness 0.05–1 (lower makes nearly solid areas fully solid, e.g. a shirt tinted by the screen; higher keeps soft edges and motion blur), spill 0–1 (removes screen light reflected on hair and skin), spillFirmness 0–1 (also removes the tint in hair; lower if clothing near the screen color looks off). Edges page: shrink 0–3 px (pulls the edge in to remove an outline), smooth 0–3 px (softens jagged edges from compressed video; leave both 0 for clean 4K), edgeColor 0–1 (see-through edges borrow color from the person, removing fringes), correction 0–1 (follows wrinkles and shadows on the screen), maskLeft/maskRight/maskTop/maskBottom 0–0.5 (crop out lights, stands and walls beyond the screen, as a share of the frame). screen: \"auto\" to detect again, a point {x, y} on clean screen in the frame under the playhead (fractions, y from the top), or a color \"#RRGGBB\". reset: true puts everything back to the defaults for this kind of screen. Check the result with snapshot.",
+        "description": "Changes the key (the Key and Compose page). Only what you pass changes. strength 0.5–2.5 (how firmly the screen is removed; raise if screen or floor still shows, lower if hair thins), softness 0.05–1 (lower makes nearly solid areas fully solid, e.g. a shirt tinted by the screen; higher keeps soft edges and motion blur), spill 0–1 (removes screen light reflected on hair and skin), spillFirmness 0–1 (also removes the tint in hair; lower if clothing near the screen color looks off). shrink 0–3 px (pulls the edge in to remove an outline), smooth 0–3 px (softens jagged edges from compressed video; leave both 0 for clean 4K), edgeColor 0–1 (see-through edges borrow color from the person, removing fringes), correction 0–1 (follows wrinkles and shadows on the screen), maskLeft/maskRight/maskTop/maskBottom 0–0.5 (crop out lights, stands and walls beyond the screen, as a share of the frame; the user drags them as the sides of the box on the video). Blend, to make the person sit in the background instead of looking pasted on (only the person is affected): lightWrap 0–1 (the background's light spills over the edges; the main fix for a cut-out look), wrapWidth 2–40 px (how far in it reaches, default 12), diffusion 0–1 (mist-filter glow from the highlights and softer fine contrast, to match a dreamy or soft background), soften 0–2 px (light blur for over-sharpened footage; small amounts). screen: \"auto\" to detect again, a point {x, y} on clean screen in the frame under the playhead (fractions, y from the top), or a color \"#RRGGBB\". reset: true puts everything back to the defaults for this kind of screen. Check the result with snapshot.",
         "inputSchema": ["type": "object", "properties": [
             "strength": prop("number", "0.5–2.5"), "softness": prop("number", "0.05–1"),
             "spill": prop("number", "0–1"), "spillFirmness": prop("number", "0–1"),
@@ -148,13 +148,14 @@ let tools: [[String: Any]] = [
             "edgeColor": prop("number", "0–1"), "correction": prop("number", "0–1"),
             "maskLeft": prop("number", "0–0.5"), "maskRight": prop("number", "0–0.5"),
             "maskTop": prop("number", "0–0.5"), "maskBottom": prop("number", "0–0.5"),
+            "lightWrap": prop("number", "0–1"), "wrapWidth": prop("number", "2–40 px"), "diffusion": prop("number", "0–1"), "soften": prop("number", "0–2 px"),
             "screen": prop(["string", "object"], "\"auto\", {\"x\": 0.1, \"y\": 0.2}, or \"#3ECC46\"."),
             "reset": prop("boolean", "Back to the defaults first (applied before the other values you pass).")
         ]]
     ],
     [
         "name": "set_background",
-        "description": "Chooses what is behind the person. path: an image or video file (videos are muted and loop in time with the clip). backdrop: blue or checker (test backdrops for checking the key), or background (the chosen image or video). blur 0–20 softens the background so it looks out of focus. Shows the Compose page.",
+        "description": "Chooses what is behind the person. path: an image or video file (videos are muted and loop in time with the clip). backdrop: blue or checker (test backdrops for checking the key), or background (the chosen image or video). blur 0–20 softens the background so it looks out of focus. Shows the Key and Compose page.",
         "inputSchema": ["type": "object", "properties": [
             "path": prop("string", "An image or video file. ~ is allowed. Choosing one also selects it as the backdrop."),
             "backdrop": ["type": "string", "enum": ["blue", "checker", "background"]],
@@ -171,11 +172,24 @@ let tools: [[String: Any]] = [
         ]]
     ],
     [
-        "name": "set_view",
-        "description": "Changes what the user sees in the app: page (key, edges, compose, export) and view (key, matte, original). Useful to show the user what you're talking about.",
+        "name": "set_visual",
+        "description": "Sets the Visual Design grade (the Visual Design page; also shown on Key and Compose and in the export). Only what you pass changes. grades: person (only the keyed person, to match them to the background; the default) or wholePicture. Sliders −100…100 (0 = untouched): exposure (±1 stop), saturation, vibrance, color (− cooler/blue, + warmer/yellow), tint (− green, + magenta), highlights (− recover, + brighten), shadows (− deepen, + lift); sharpen and denoise 0–100. Levels: blackPoint and whitePoint 0–1. reset: true sets every slider and Levels back to neutral first (LUTs and Curves stay). LUTs and Curves are set by the user in the app. Check with snapshot.",
         "inputSchema": ["type": "object", "properties": [
-            "page": ["type": "string", "enum": ["key", "edges", "compose", "export"]],
-            "view": ["type": "string", "enum": ["key", "matte", "original"]]
+            "grades": ["type": "string", "enum": ["person", "wholePicture"]],
+            "exposure": prop("number", "−100…100"), "saturation": prop("number", "−100…100"), "vibrance": prop("number", "−100…100"),
+            "color": prop("number", "−100…100"), "tint": prop("number", "−100…100"),
+            "highlights": prop("number", "−100…100"), "shadows": prop("number", "−100…100"),
+            "sharpen": prop("number", "0–100"), "denoise": prop("number", "0–100"),
+            "blackPoint": prop("number", "0–1"), "whitePoint": prop("number", "0–1"),
+            "reset": prop("boolean", "Neutral first (applied before the other values).")
+        ]]
+    ],
+    [
+        "name": "set_view",
+        "description": "Changes what the user sees in the app: page (key = Key and Compose, design = Visual Design, export) and view (key = Final, matte, split = matte and final side by side, original). Useful to show the user what you're talking about.",
+        "inputSchema": ["type": "object", "properties": [
+            "page": ["type": "string", "enum": ["key", "design", "export"]],
+            "view": ["type": "string", "enum": ["key", "matte", "split", "original"]]
         ]]
     ],
     [

@@ -8,12 +8,18 @@ on 1080p on an M1.
 
 ## What it does
 
-- **Key:** finds the green or blue screen automatically and starts from settings tuned for each.
-  Pick Screen Color if it guesses wrong. Strength, Softness and Spill controls clean up the result.
-- **Edges:** Shrink and Smooth for compressed footage, Edge color repair for fringes, Screen
-  correction for wrinkles and shadows, and a Mask to crop out lights and stands.
-- **Compose:** an image or looping video background with blur, and drag handles (like 1Shot's
-  graphics) to resize and move yourself in the frame.
+- **Key and Compose:** one page for everything that shapes the key, because each control changes
+  what the others need. It finds the green or blue screen automatically and starts from settings
+  tuned for each (Pick Screen Color if it guesses wrong). The controls are grouped as Matte
+  (Strength, Softness, Correction), Spill, Edges (Shrink, Smooth, Edge color), and Blend (Light
+  wrap, Diffusion, Soften, so you sit in the background instead of looking pasted on), then
+  Background and Size. On the video, drag the sides of the box to mask out lights and stands, a corner to
+  resize, and the middle to move.
+- **View bar:** above the video. Final, Matte, Split (matte and final side by side, with a line you
+  can drag) or Original, and what's behind you (your background, Checker or Blue), on every page.
+- **Visual Design:** 1Shot's color panel: white balance eyedropper, Camera and Creative LUTs
+  (shared with 1Shot's LUT folder), Levels with a live histogram, Curves (RGB, Red, Green, Blue), and the Color sliders. Grade just
+  yourself to match the background, or the whole picture.
 - **Export:** a finished MP4 (HEVC) over your background, or a transparent ProRes 4444 MOV for
   DaVinci Resolve and Final Cut. Audio is copied as is.
 - **AI control (MCP):** any AI app that speaks MCP (the Claude desktop app, Claude Code, Cursor,
