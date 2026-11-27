@@ -259,9 +259,37 @@ struct Look {
     /// so a look never tints the see-through edges.
     func gradePerson(_ fg: CIImage) -> CIImage {
         guard !isNeutral else { return fg }
-        let opaque = fg.unpremultiplyingAlpha().applyingFilter("CIColorMatrix", parameters: [
-            "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0), "inputBiasVector": CIVector(x: 0, y: 0, z: 0, w: 1)])
-        return grade(opaque).applyingFilter("CIBlendWithAlphaMask", parameters: [
+        let makeOpaque: (CIImage) -> CIImage = { $0.applyingFilter("CIColorMatrix", parameters: [
+            "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0), "inputBiasVector": CIVector(x: 0, y: 0, z: 0, w: 1)]) }
+        var opaque = makeOpaque(fg.unpremultiplyingAlpha())
+        if settings.sharpen > 0 || settings.denoise > 0 {
+            // Sharpen and Denoise look at neighbouring pixels. Outside the person those are black, which
+            // they pull in as a dark outline. Spread the person's own edge colors outward first
+            // (a blur divided by its own alpha), so the filters only ever see the person's colors.
+            let px = fg.extent.height / 1080
+            let e = fg.extent
+            let bleed: (CGFloat) -> CIImage = { sigma in
+                makeOpaque(fg.clampedToExtent().applyingGaussianBlur(sigma: sigma * px).cropped(to: e).unpremultiplyingAlpha())
+            }
+            // Mostly solid pixels keep their own color. Faint edge pixels take the spread colors instead:
+            // their own color is divided by a tiny alpha, so it is noisy, and sharpening amplifies the noise.
+            let kept = fg.applyingFilter("CIColorMatrix", parameters: [
+                "inputRVector": CIVector(x: 0, y: 0, z: 0, w: 0), "inputGVector": CIVector(x: 0, y: 0, z: 0, w: 0),
+                "inputBVector": CIVector(x: 0, y: 0, z: 0, w: 0), "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 4),
+                "inputBiasVector": CIVector(x: 0, y: 0, z: 0, w: -1)])
+                .applyingFilter("CIColorClamp")
+            let spread = bleed(4).applyingFilter("CIBlendWithAlphaMask", parameters: [
+                kCIInputBackgroundImageKey: bleed(16), kCIInputMaskImageKey: fg.clampedToExtent().applyingGaussianBlur(sigma: 4 * px)
+                    .cropped(to: e).applyingFilter("CIColorMatrix", parameters: ["inputAVector": CIVector(x: 0, y: 0, z: 0, w: 20)])
+                    .applyingFilter("CIColorClamp")])
+            opaque = opaque.applyingFilter("CIBlendWithAlphaMask", parameters: [
+                kCIInputBackgroundImageKey: spread, kCIInputMaskImageKey: kept]).cropped(to: e)
+        }
+        // Sharpening can overshoot below black. Over a background, a below-black edge pixel darkens
+        // what's behind it and draws a dark outline, so colors stop at zero.
+        let graded = grade(opaque).applyingFilter("CIColorClamp", parameters: [
+            "inputMinComponents": CIVector(x: 0, y: 0, z: 0, w: 0), "inputMaxComponents": CIVector(x: 1000, y: 1000, z: 1000, w: 1)])
+        return graded.applyingFilter("CIBlendWithAlphaMask", parameters: [
             kCIInputBackgroundImageKey: CIImage.empty(), kCIInputMaskImageKey: fg]).cropped(to: fg.extent)
     }
 }
