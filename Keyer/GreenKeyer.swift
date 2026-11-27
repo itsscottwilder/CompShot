@@ -15,6 +15,10 @@ struct KeySettings: Equatable {
     var smooth: Float = 0          // softens the edge, in pixels at 1080p (hides blocky compression)
     var correction: Float = 1.0   // 0 = one screen color, 1 = follow the screen's shading and shadows
     var edgeRepair: Float = 1.0   // 0 = off, 1 = replace see-through edge color with nearby subject color
+    /// Recolors a band this wide (pixels at 1080p) just inside the edge with the color from deeper
+    /// inside the subject, keeping each pixel's brightness. For screen color the camera smeared into
+    /// solid edge pixels (compressed video), which spill and Edge color can't reach. 0 = off.
+    var edgeClean: Float = 0
     var maskLeft: Float = 0
     var maskRight: Float = 0
     var maskTop: Float = 0
@@ -136,6 +140,36 @@ kernel void edgeRepair(texture2d<float, access::write> dst [[texture(0)]],
     dst.write(float4(mix(straight, repaired, t) * f.a, f.a), gid);
 }
 
+// Edge cleanup, step 1: the subject's color, only where it is well inside the edge (eroded alpha),
+// premultiplied by that weight so a blur of it spreads interior color outward.
+kernel void edgeInterior(texture2d<float, access::write> dst [[texture(0)]],
+                         texture2d<float, access::read> fg [[texture(1)]],
+                         texture2d<float, access::read> eroded [[texture(2)]],
+                         constant float *p [[buffer(0)]], uint2 gid [[thread_position_in_grid]]) {
+    float4 f = fg.read(at(p, gid, 0));
+    float m = f.a > 0.001 ? saturate(eroded.read(at(p, gid, 1)).a) : 0.0;
+    m *= m;
+    dst.write(float4(f.a > 0.001 ? f.rgb / f.a * m : float3(0.0), m), gid);
+}
+
+// Edge cleanup, step 2: in the band near the edge (where the eroded alpha drops), take the color
+// from the spread-out interior but keep this pixel's brightness, so hair and skin detail stay.
+kernel void edgeClean(texture2d<float, access::write> dst [[texture(0)]],
+                      texture2d<float, access::read> fg [[texture(1)]],
+                      texture2d<float, access::read> interior [[texture(2)]],
+                      texture2d<float, access::read> band [[texture(3)]],
+                      constant float *p [[buffer(0)]], uint2 gid [[thread_position_in_grid]]) {
+    float4 f = fg.read(at(p, gid, 0));
+    float4 b = interior.read(at(p, gid, 1));
+    if (f.a < 0.001 || b.a < 0.001) { dst.write(f, gid); return; }
+    float t = saturate(1.0 - band.read(at(p, gid, 2)).a);
+    if (t < 0.001) { dst.write(f, gid); return; }
+    float3 straight = f.rgb / f.a, inner = b.rgb / b.a;
+    const float3 L = float3(0.2126, 0.7152, 0.0722);
+    float3 repaired = inner * (dot(straight, L) / max(dot(inner, L), 0.0001));
+    dst.write(float4(mix(straight, repaired, t) * f.a, f.a), gid);
+}
+
 // Replaces the edge with a shrunk and smoothed one. refined = blur(min(fg)), premultiplied.
 // Where the original edge was nearly clear, the color comes from the smoothed subject instead.
 kernel void refineEdge(texture2d<float, access::write> dst [[texture(0)]],
@@ -199,7 +233,7 @@ private final class KeyStep: CIImageProcessorKernel {
 final class GreenKeyer {
     init(device: MTLDevice) throws {
         let library = try device.makeLibrary(source: shaderSource, options: nil)
-        for name in ["screenWeight", "screenPlate", "greenKey", "edgeRepair", "refineEdge"] {
+        for name in ["screenWeight", "screenPlate", "greenKey", "edgeRepair", "refineEdge", "edgeInterior", "edgeClean"] {
             KeyStep.pipelines[name] = try device.makeComputePipelineState(function: library.makeFunction(name: name)!)
         }
     }
@@ -244,6 +278,16 @@ final class GreenKeyer {
             }
             if s.smooth > 0 { refined = blur(refined, CGFloat(s.smooth * px)) }
             result = KeyStep.run("refineEdge", [result, refined], extent: e, [])
+        }
+        if output == .foreground && s.edgeClean > 0 {
+            let w = CGFloat(s.edgeClean * Float(e.height) / 1080)
+            // Alpha eroded by the band width: 1 well inside the subject, falling to 0 near the edge.
+            // Clamped first so the frame's own border doesn't count as an edge.
+            let eroded = result.clampedToExtent()
+                .applyingFilter("CIMorphologyMinimum", parameters: [kCIInputRadiusKey: w]).cropped(to: e)
+            let band = blur(eroded, max(w / 3, 0.5))
+            let interior = blur(KeyStep.run("edgeInterior", [result, eroded], extent: e, []), w * 1.5)
+            result = KeyStep.run("edgeClean", [result, interior, band], extent: e, [])
         }
         if output == .matte {
             // Show the alpha channel as gray, including any shrink and smoothing.

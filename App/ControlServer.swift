@@ -246,7 +246,7 @@ extension AppController {
         ("strength", \.strength, 0.5, 2.5, .key), ("softness", \.softness, 0.05, 1, .key),
         ("spill", \.spill, 0, 1, .key), ("spillFirmness", \.spillFirmness, 0, 1, .key),
         ("shrink", \.shrinkEdges, 0, 3, .key), ("smooth", \.smoothEdges, 0, 3, .key),
-        ("edgeColor", \.edgeRepair, 0, 1, .key), ("correction", \.correction, 0, 1, .key),
+        ("edgeColor", \.edgeRepair, 0, 1, .key), ("edgeClean", \.edgeClean, 0, 6, .key), ("correction", \.correction, 0, 1, .key),
         ("maskLeft", \.maskLeft, 0, 0.5, .key), ("maskRight", \.maskRight, 0, 0.5, .key),
         ("maskTop", \.maskTop, 0, 0.5, .key), ("maskBottom", \.maskBottom, 0, 0.5, .key),
         ("lightWrap", \.lightWrap, 0, 1, .key), ("wrapWidth", \.wrapWidth, 2, 40, .key),
@@ -308,7 +308,7 @@ extension AppController {
         s["key"] = key
         let d = settings.screenDefaults
         s["defaultsForThisScreen"] = ["strength": MCP.r(d.strength), "softness": MCP.r(d.softness), "spill": MCP.r(d.spill),
-                                      "spillFirmness": MCP.r(d.spillFirmness), "shrink": 0, "smooth": 0, "edgeColor": 1,
+                                      "spillFirmness": MCP.r(d.spillFirmness), "shrink": 0, "smooth": 0, "edgeColor": 1, "edgeClean": 0,
                                       "correction": 1, "maskLeft": 0, "maskRight": 0, "maskTop": 0, "maskBottom": 0,
                                       "lightWrap": 0, "wrapWidth": 12, "diffusion": 0, "soften": 0]
         var bg: [String: Any] = ["choice": Self.backdropNames[backdrop]!, "blur": MCP.r(bgBlur, 1)]
@@ -475,7 +475,7 @@ extension AppController {
         if reset {
             if let f = frame, let c = r.detectScreen(f) { settings.screen = c; screenPicked = false }
             applyScreenDefaults()
-            resetSliders([\.shrinkEdges, \.smoothEdges, \.edgeRepair, \.correction]); resetMask()
+            resetSliders([\.shrinkEdges, \.smoothEdges, \.edgeRepair, \.edgeClean, \.correction]); resetMask()
             blend = Blend(); refreshSliders([\.lightWrap, \.wrapWidth, \.diffusion, \.soften])
             changed.append("reset")
         }

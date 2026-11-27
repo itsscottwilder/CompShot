@@ -87,6 +87,7 @@ final class AppController: NSObject, NSApplicationDelegate, MTKViewDelegate {
     var smoothEdges: Float { get { settings.smooth } set { settings.smooth = newValue } }
     var correction: Float { get { settings.correction } set { settings.correction = newValue } }
     var edgeRepair: Float { get { settings.edgeRepair } set { settings.edgeRepair = newValue } }
+    var edgeClean: Float { get { settings.edgeClean } set { settings.edgeClean = newValue } }
     var maskLeft: Float { get { settings.maskLeft } set { settings.maskLeft = newValue } }
     var maskRight: Float { get { settings.maskRight } set { settings.maskRight = newValue } }
     var maskTop: Float { get { settings.maskTop } set { settings.maskTop = newValue } }
@@ -315,10 +316,11 @@ final class AppController: NSObject, NSApplicationDelegate, MTKViewDelegate {
         let spill = row("Spill", \.spill, 0, 1, Self.percent, "Removes screen-colored light reflected onto hair and skin")
         let firm = row("Firmness", \.spillFirmness, 0, 1, Self.percent, "Higher also removes the tint the screen leaves in hair. Lower it if clothing near the screen color starts to look off.")
 
-        let edgesHeader = group("Edges", [\.shrinkEdges, \.smoothEdges, \.edgeRepair], "Shrink, Smooth and Edge color back to their defaults")
+        let edgesHeader = group("Edges", [\.shrinkEdges, \.smoothEdges, \.edgeRepair, \.edgeClean], "Shrink, Smooth, Edge color and Cleanup back to their defaults")
         let shrink = row("Shrink", \.shrinkEdges, 0, 3, Self.pixels, "Pulls the edge in to remove a thin outline")
         let smooth = row("Smooth", \.smoothEdges, 0, 3, Self.pixels, "Softens jagged, blocky edges from compressed video. Leave Shrink and Smooth off for clean 4K.")
         let repair = row("Edge color", \.edgeRepair, 0, 1, Self.percent, "See-through edges borrow color from the person, removing colored fringes")
+        let clean = row("Cleanup", \.edgeClean, 0, 6, Self.pixels, "Recolors a thin band just inside your edges with the color from further in, keeping the detail. Removes a green or khaki outline that compressed video bakes into the edge.")
 
         let blendHeader = group("Blend", [\.lightWrap, \.wrapWidth, \.diffusion, \.soften], "Light wrap, Diffusion and Soften off")
         let blendNote = noteLabel("Helps you sit in the background instead of looking pasted on. Only you are affected.")
@@ -345,12 +347,12 @@ final class AppController: NSObject, NSApplicationDelegate, MTKViewDelegate {
         let size = row("Size", \.placeScale, 0.25, 3, Self.percent, "How big you are in the frame")
 
         let views: [NSView] = [screenCard, header, note, pickButton, matteHeader, strength, soft, corr, spillHeader, spill, firm,
-                               edgesHeader, shrink, smooth, repair, blendHeader, blendNote, wrap, wrapW, diff, soft2,
+                               edgesHeader, shrink, smooth, repair, clean, blendHeader, blendNote, wrap, wrapW, diff, soft2,
                                maskHeader, maskNote, bgTitle, choose, bgLabel, blur, placeHeader, placeNote, size]
         return panelPage(views, spacingAfter: [screenCard: 14, note: 12, pickButton: 18, matteHeader: 2, corr: 16, spillHeader: 2, firm: 16,
-                                               edgesHeader: 2, repair: 16, blendHeader: 2, blendNote: 6, soft2: 16, maskHeader: 2, maskNote: 16, bgTitle: 6, choose: 4, bgLabel: 8, blur: 16, placeHeader: 2, placeNote: 6],
+                                               edgesHeader: 2, clean: 16, blendHeader: 2, blendNote: 6, soft2: 16, maskHeader: 2, maskNote: 16, bgTitle: 6, choose: 4, bgLabel: 8, blur: 16, placeHeader: 2, placeNote: 6],
                          fullWidth: [screenCard, header, note, pickButton, matteHeader, strength, soft, corr, spillHeader, spill, firm,
-                                     edgesHeader, shrink, smooth, repair, blendHeader, blendNote, wrap, wrapW, diff, soft2, maskHeader, maskNote, choose, bgLabel, blur, placeHeader, placeNote, size])
+                                     edgesHeader, shrink, smooth, repair, clean, blendHeader, blendNote, wrap, wrapW, diff, soft2, maskHeader, maskNote, choose, bgLabel, blur, placeHeader, placeNote, size])
     }
 
     func resetMask() {
@@ -359,7 +361,7 @@ final class AppController: NSObject, NSApplicationDelegate, MTKViewDelegate {
     }
     func resetAll() {
         resetKey()
-        resetSliders([\.correction, \.shrinkEdges, \.smoothEdges, \.edgeRepair]); resetMask()
+        resetSliders([\.correction, \.shrinkEdges, \.smoothEdges, \.edgeRepair, \.edgeClean]); resetMask()
     }
 
     func buildDesignPage() -> NSView {

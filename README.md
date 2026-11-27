@@ -11,7 +11,7 @@ on 1080p on an M1.
 - **Key and Compose:** one page for everything that shapes the key, because each control changes
   what the others need. It finds the green or blue screen automatically and starts from settings
   tuned for each (Pick Screen Color if it guesses wrong). The controls are grouped as Matte
-  (Strength, Softness, Correction), Spill, Edges (Shrink, Smooth, Edge color), and Blend (Light
+  (Strength, Softness, Correction), Spill, Edges (Shrink, Smooth, Edge color, Cleanup), and Blend (Light
   wrap, Diffusion, Soften, so you sit in the background instead of looking pasted on), then
   Background and Size. On the video, drag the sides of the box to mask out lights and stands, a corner to
   resize, and the middle to move.
